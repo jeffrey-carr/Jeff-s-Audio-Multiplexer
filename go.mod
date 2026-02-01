@@ -1,0 +1,10 @@
+module mediacenter
+
+go 1.25.3
+
+require gopkg.in/yaml.v3 v3.0.1
+
+require (
+	github.com/gen2brain/malgo v0.11.24 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+)
