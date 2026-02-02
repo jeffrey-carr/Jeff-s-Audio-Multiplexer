@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	clientmanager "mediacenter/client_manager"
 	"mediacenter/shared"
 	"net"
-	"slices"
 
 	"github.com/gen2brain/malgo"
 )
@@ -15,15 +15,20 @@ import (
 type MediaServer struct {
 	serverPort    int
 	discoveryPort int
+	clients       clientmanager.ClientManager
+	listener      *ListenerServer
 
 	isRunning bool
 }
 
 // NewMediaServer creates a new MediaServer
-func NewMediaServer(serverPort int, discoveryPort int) *MediaServer {
+func NewMediaServer(serverPort int, discoveryPort int, clientManager clientmanager.ClientManager) *MediaServer {
+	listenerServer := NewListenerServer(discoveryPort, serverPort, clientManager)
 	return &MediaServer{
 		serverPort:    serverPort,
 		discoveryPort: discoveryPort,
+		clients:       clientManager,
+		listener:      listenerServer,
 	}
 }
 
@@ -49,7 +54,7 @@ func (s *MediaServer) Start() (func() error, error) {
 		stopServer()
 		return nil, err
 	}
-	err = s.listenBroadcast(serverCtx)
+	err = s.listener.Start(serverCtx)
 	if err != nil {
 		stopServer()
 		return nil, err
@@ -73,7 +78,7 @@ func (s *MediaServer) Start() (func() error, error) {
 	return closer, nil
 }
 
-func (s *MediaServer) launchServer(ctx context.Context, audioBuffer *shared.ThreadSafeBuffer[byte]) error {
+func (s *MediaServer) launchServer(ctx context.Context, audioBuffer shared.ThreadSafeBuffer[byte]) error {
 	if s.isRunning {
 		return errors.New("server is already running")
 	}
@@ -84,17 +89,20 @@ func (s *MediaServer) launchServer(ctx context.Context, audioBuffer *shared.Thre
 		return err
 	}
 
-	buffer := make([]byte, shared.NetworkPacketSizeBytes)
 	go func() {
+		buffer := make([]byte, shared.NetworkPacketSizeBytes)
 		for {
 			if shared.ShouldKillCtx(ctx) {
 				return
 			}
 
-			n, _, err := server.ReadFromUDP(buffer)
+			n, addr, err := server.ReadFromUDP(buffer)
 			if err != nil {
 				fmt.Printf("Error reading: %s\n", err.Error())
 				continue
+			}
+			if addr != nil {
+				s.clients.MarkClient(addr.IP.String())
 			}
 
 			audioBuffer.Add(buffer[:n]...)
@@ -106,64 +114,15 @@ func (s *MediaServer) launchServer(ctx context.Context, audioBuffer *shared.Thre
 }
 
 func (s *MediaServer) startUDP() (*net.UDPConn, error) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", s.serverPort))
+	addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf(":%d", s.serverPort))
 	if err != nil {
 		return nil, err
 	}
 
-	return net.ListenUDP("udp", addr)
+	return net.ListenUDP("udp4", addr)
 }
 
-func (s *MediaServer) listenBroadcast(ctx context.Context) error {
-	errChan := make(chan error, 1)
-	go func() {
-		defer close(errChan)
-
-		listener, err := net.ListenPacket("udp", fmt.Sprintf(":%d", s.discoveryPort))
-		if err != nil {
-			errChan <- err
-			return
-		}
-		defer listener.Close()
-
-		// we've done all the scary work with starting the
-		// listener server, so we can stop worrying
-		// about errors (for now, we should log errors at some point)
-		close(errChan)
-
-		discoverResponse := shared.CraftServerDiscoveryResponse(s.serverPort)
-		discoverMessage := []byte(shared.ServerDiscoveryKeyword)
-		buffer := make([]byte, len(discoverMessage))
-		for {
-			if shared.ShouldKillCtx(ctx) {
-				return
-			}
-
-			_, clientAddr, err := listener.ReadFrom(buffer)
-			if err != nil {
-				continue
-			}
-
-			fmt.Printf("Received message from %s: %s\n", clientAddr.String(), string(buffer))
-
-			if slices.Equal(discoverMessage, buffer) {
-				listener.WriteTo(discoverResponse, clientAddr)
-			}
-		}
-	}()
-
-	for err := range errChan {
-		if err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("Started listener server")
-
-	return nil
-}
-
-func (s *MediaServer) handleAudio(audioBuffer *shared.ThreadSafeBuffer[byte]) shared.MalgoCallback {
+func (s *MediaServer) handleAudio(audioBuffer shared.ThreadSafeBuffer[byte]) shared.MalgoCallback {
 	isBuffering := true
 
 	return func(pOutput, _ []byte, _ uint32) {

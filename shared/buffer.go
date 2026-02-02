@@ -9,9 +9,19 @@ import (
 const frameSize = 8
 
 // ThreadSafeBuffer is a buffer that is thread safe.
-//
-// You should not instantiate this directly, call NewThreadSafeBuffer()
-type ThreadSafeBuffer[T any] struct {
+type ThreadSafeBuffer[T any] interface {
+	// Add adds data to the buffer. If the buffer is full,
+	// it overwrites the oldest data
+	Add(newData ...T) error
+	// Read reads a certain amount of data out of the buffer
+	Read(amount int) []T
+	// ReadInto reads the data into a slice
+	ReadInto(target []T)
+	// Size returns the current size of the buffer
+	Size() int
+}
+
+type threadSafeBuffer[T any] struct {
 	data       []T
 	size       int
 	head, tail int
@@ -19,13 +29,13 @@ type ThreadSafeBuffer[T any] struct {
 }
 
 // NewThreadSafeBuffer creates a new threadsafe buffer
-func NewThreadSafeBuffer[T any](maxSize int) *ThreadSafeBuffer[T] {
+func NewThreadSafeBuffer[T any](maxSize int) ThreadSafeBuffer[T] {
 	data := make([]T, maxSize)
 	var zero T
 	for i := range maxSize {
 		data[i] = zero
 	}
-	return &ThreadSafeBuffer[T]{
+	return &threadSafeBuffer[T]{
 		data:  data,
 		size:  0,
 		head:  0,
@@ -34,9 +44,7 @@ func NewThreadSafeBuffer[T any](maxSize int) *ThreadSafeBuffer[T] {
 	}
 }
 
-// Add adds data to the buffer. If the buffer is full,
-// it overwrites the oldest data
-func (buf *ThreadSafeBuffer[T]) Add(newData ...T) error {
+func (buf *threadSafeBuffer[T]) Add(newData ...T) error {
 	buf.mutex.Lock()
 	defer buf.mutex.Unlock()
 
@@ -56,12 +64,11 @@ func (buf *ThreadSafeBuffer[T]) Add(newData ...T) error {
 		buf.tail = (buf.tail + 1) % cap(buf.data)
 	}
 
-	buf.size += count
+	buf.size = min(buf.size+count, cap(buf.data))
 	return nil
 }
 
-// Read reads a certain amount of data out of the buffer
-func (buf *ThreadSafeBuffer[T]) Read(amt int) []T {
+func (buf *threadSafeBuffer[T]) Read(amt int) []T {
 	buf.mutex.Lock()
 	defer buf.mutex.Unlock()
 
@@ -72,8 +79,7 @@ func (buf *ThreadSafeBuffer[T]) Read(amt int) []T {
 	return output
 }
 
-// ReadInto reads the data into a slice
-func (buf *ThreadSafeBuffer[T]) ReadInto(s []T) {
+func (buf *threadSafeBuffer[T]) ReadInto(s []T) {
 	buf.mutex.Lock()
 	defer buf.mutex.Unlock()
 
@@ -81,7 +87,7 @@ func (buf *ThreadSafeBuffer[T]) ReadInto(s []T) {
 }
 
 // readIntoUnsafe is a helper that doesn't grab the lock
-func (buf *ThreadSafeBuffer[T]) readIntoUnsafe(s []T) {
+func (buf *threadSafeBuffer[T]) readIntoUnsafe(s []T) {
 	returnSize := min(len(s), buf.size)
 
 	for i := range returnSize {
@@ -98,8 +104,7 @@ func (buf *ThreadSafeBuffer[T]) readIntoUnsafe(s []T) {
 	}
 }
 
-// Size returns the current size of the buffer
-func (buf *ThreadSafeBuffer[T]) Size() int {
+func (buf *threadSafeBuffer[T]) Size() int {
 	buf.mutex.Lock()
 	defer buf.mutex.Unlock()
 	return buf.size

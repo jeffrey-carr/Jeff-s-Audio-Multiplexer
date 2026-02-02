@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"mediacenter/shared"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/gen2brain/malgo"
@@ -15,12 +16,17 @@ import (
 // MediaClient is the media client
 type MediaClient struct {
 	serverPort int
+
+	name         string
+	capabilities []int
 }
 
 // NewMediaClient creates a new media client
-func NewMediaClient(serverPort int) *MediaClient {
+func NewMediaClient(serverPort int, clientName string) *MediaClient {
+	// TODO - capabilities
 	return &MediaClient{
 		serverPort: serverPort,
+		name:       clientName,
 	}
 }
 
@@ -82,6 +88,7 @@ func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, er
 		// craft a sample response to determine the size of the buffer
 		sampleResponse := shared.CraftServerDiscoveryResponse(9999)
 		buffer := make([]byte, len(sampleResponse))
+		var serverPort int
 
 		for {
 			if shared.ShouldKillCtx(ctx) {
@@ -93,33 +100,76 @@ func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, er
 				break
 			}
 
+			bufferContents := strings.TrimRight(string(buffer), "\x00")
+			shared.ZeroSlice(buffer)
+
 			peerUDPAddr, ok := peerAddr.(*net.UDPAddr)
 			if !ok {
 				continue
 			}
 
-			fmt.Printf("received response from %s: %s\n", peerAddr.String(), string(buffer))
+			fmt.Printf("received response from %s: %s\n", peerAddr.String(), bufferContents)
+			actionType := shared.IdentifyServerAction(bufferContents)
 
-			isServer, serverPort, err := shared.ReadServerDiscoveryResponse(string(buffer))
-			if err != nil {
-				return nil, err
+			switch actionType {
+			case shared.ServerActionDiscover:
+				var ok bool
+				ok, serverPort, err = client.handleDiscoveryResponse(bufferContents, peerUDPAddr, listener)
+				if !ok || err != nil {
+					continue
+				}
+			case shared.ServerActionIdentification:
+				ok, err := client.handleIdentificationResponse(bufferContents)
+				if err != nil {
+					serverPort = 0
+					break
+				}
+				if ok {
+					peerUDPAddr.Port = serverPort
+					return peerUDPAddr, nil
+				}
+			default:
+				fmt.Println("unknown action")
 			}
-
-			// we've already read the buffer, so clear it out
-			shared.ZeroSlice(buffer)
-
-			if !isServer {
-				continue
-			}
-
-			peerUDPAddr.Port = serverPort
-			return peerUDPAddr, nil
 		}
 
 		if attempts >= ServerDiscoveryAttempts {
 			return nil, errors.New("could not find server")
 		}
 	}
+}
+
+func (client *MediaClient) handleDiscoveryResponse(message string, dst *net.UDPAddr, conn net.PacketConn) (bool, int, error) {
+	isServer, serverPort, err := shared.ReadServerDiscoveryResponse(message)
+	if err != nil {
+		return false, 0, err
+	}
+
+	if !isServer {
+		return false, 0, nil
+	}
+
+	_, err = conn.WriteTo(shared.CraftClientIdentificationMessage(client.name, []int{1}), dst)
+	if err != nil {
+		return false, 0, err
+	}
+
+	return true, serverPort, nil
+}
+
+func (client *MediaClient) handleIdentificationResponse(message string) (bool, error) {
+	ok, err := shared.ReadClientIdentificationResponse(message)
+	if err == shared.ErrNotClientIdentificationMessage {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, errors.New("connection error")
+	}
+
+	return true, nil
 }
 
 func (client *MediaClient) startUDP(ctx context.Context) (*net.UDPConn, error) {

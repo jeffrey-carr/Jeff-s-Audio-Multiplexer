@@ -2,11 +2,11 @@ package shared
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 // ShouldKillCtx easily tells you if your context has been canceled
@@ -17,6 +17,15 @@ func ShouldKillCtx(ctx context.Context) bool {
 	default:
 		return false
 	}
+}
+
+// Map runs a function over a slice and returns the output
+func Map[T any, K any](s []T, f func(T) K) []K {
+	out := make([]K, len(s))
+	for i, item := range s {
+		out[i] = f(item)
+	}
+	return out
 }
 
 // StreamSlice allows streaming a slice in certain lengths
@@ -46,37 +55,35 @@ func ZeroSlice[T any](s []T) {
 	}
 }
 
-// BytesToFloats takes a slice of raw bytes and converts
-// them to a slice of float32
-func BytesToFloats(b []byte) []float32 {
-	if len(b) == 0 {
-		return nil
+// IdentifyServerAction identifies the server action from the message
+func IdentifyServerAction(message string) ServerAction {
+	actionStr := strings.Split(message, ServerMessagePartsDelimiter)[0]
+	fmt.Printf("action string: %q\n", actionStr)
+	switch actionStr {
+	case ServerDiscoveryKeyword:
+		fallthrough
+	case ServerDiscoveryResponse:
+		return ServerActionDiscover
+	case ClientIdentificationKeyword:
+		fallthrough
+	case ClientIdentificationResponse:
+		return ServerActionIdentification
+	default:
+		return ServerActionUnknown
 	}
-
-	return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4)
-}
-
-// FloatsToBytes takes a slice of floats and converts
-// it to raw bytes
-func FloatsToBytes(f []float32) []byte {
-	if len(f) == 0 {
-		return nil
-	}
-
-	return unsafe.Slice((*byte)(unsafe.Pointer(&f[0])), len(f)*4)
 }
 
 // CraftServerDiscoveryResponse creates the server positive response
 // including the port number
 func CraftServerDiscoveryResponse(port int) []byte {
-	return []byte(fmt.Sprintf("%s:%d", ServerDiscoveryResponse, port))
+	return []byte(joinParts(ServerDiscoveryResponse, strconv.FormatInt(int64(port), 10)))
 }
 
 // ReadServerDiscoveryResponse reads the response and returns a
 // bool telling you if that is the correct message, and the port
 // that is included in the message
 func ReadServerDiscoveryResponse(resp string) (bool, int, error) {
-	parts := strings.Split(resp, ServerDiscoveryDelimiter)
+	parts := strings.Split(resp, ServerMessagePartsDelimiter)
 	if len(parts) != 2 {
 		return false, 0, nil
 	}
@@ -87,4 +94,93 @@ func ReadServerDiscoveryResponse(resp string) (bool, int, error) {
 
 	port, err := strconv.Atoi(parts[1])
 	return true, port, err
+}
+
+// CraftClientIdentificationMessage puts together a client identification message
+func CraftClientIdentificationMessage(name string, capabilities []int) []byte {
+	capabilitiesStr := strings.Join(Map(capabilities, func(capability int) string {
+		return strconv.FormatInt(int64(capability), 10)
+	}), ",")
+
+	// Non-AI proof. Only a human could make code so disgusting
+	return []byte(joinParts(
+		ClientIdentificationKeyword,
+		joinItems(ClientIdentificationNameKey, name),
+		joinItems(ClientIdentificationCapabilitiesKey, capabilitiesStr),
+	))
+}
+
+// CraftClientIdentificationResponse puts together a client identification response message
+func CraftClientIdentificationResponse(ok bool) []byte {
+	return []byte(
+		joinParts(
+			ClientIdentificationResponse,
+			fmt.Sprintf("%t", ok),
+		),
+	)
+}
+
+// ReadClientIdentificationMessage reads a client identification message and
+// returns the individual parts, and a boolean flag if this was indeed a client identification message
+func ReadClientIdentificationMessage(message string) (bool, string, []int, error) {
+	parts := strings.Split(message, ServerMessagePartsDelimiter)
+	if len(parts) != 3 {
+		return false, "", nil, nil
+	}
+
+	if parts[0] != ClientIdentificationKeyword {
+		return false, "", nil, nil
+	}
+
+	nameIdentificationParts := strings.Split(parts[1], ServerMessageItemDelimiter)
+	if len(nameIdentificationParts) != 2 ||
+		nameIdentificationParts[0] != ClientIdentificationNameKey {
+		return true, "", nil, errors.New("client name not provided")
+	}
+	name := nameIdentificationParts[1]
+
+	capabilitiesParts := strings.Split(parts[2], ServerMessageItemDelimiter)
+	if len(capabilitiesParts) != 2 ||
+		capabilitiesParts[0] != ClientIdentificationCapabilitiesKey {
+		return true, "", nil, errors.New("client capabilities not provided")
+	}
+	capabilities := Map(strings.Split(capabilitiesParts[1], ","), func(capabilityStr string) int {
+		// ehhh it'll be easy to figure out if the capability isn't being sent correctly
+		i, _ := strconv.Atoi(capabilityStr)
+		return i
+	})
+	capabilities = FilterSlice(capabilities, func(capability int) bool { return capability > 0 })
+
+	return true, name, capabilities, nil
+}
+
+// ReadClientIdentificationResponse returns whether the connection was ok
+// based on the server response
+func ReadClientIdentificationResponse(message string) (bool, error) {
+	parts := strings.Split(message, ServerMessagePartsDelimiter)
+	if len(parts) != 2 || parts[0] != ClientIdentificationResponse {
+		return false, ErrNotClientIdentificationMessage
+	}
+
+	return strconv.ParseBool(parts[1])
+}
+
+func joinParts(parts ...string) string {
+	return strings.Join(parts, ServerMessagePartsDelimiter)
+}
+
+func joinItems(items ...string) string {
+	return strings.Join(items, ServerMessageItemDelimiter)
+}
+
+// FilterSlice filters items out of a slice
+func FilterSlice[T any](s []T, f func(T) bool) []T {
+	var out []T
+	for _, item := range s {
+		if f(item) {
+			out = append(out, item)
+		}
+	}
+
+	return out
 }

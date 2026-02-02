@@ -1,16 +1,53 @@
 package shared
 
+import "errors"
+
 // Networking constants
 const (
 	// NetworkPacketSizeBytes is the maximum size of
 	// a UDP network packet
 	NetworkPacketSizeBytes = 1400
-	// ServerDiscoveryKeyword is the phrase used
-	// to distinguish server discovery messages on
-	// the network
-	ServerDiscoveryKeyword   = "WHO_IS_MEDIA_SERVER"
-	ServerDiscoveryResponse  = "I_AM_MEDIA_SERVER"
-	ServerDiscoveryDelimiter = ":"
+	// ServerMessagePartsDelimiter is the delimiter between
+	// different parts of a message on the server
+	ServerMessagePartsDelimiter = ";"
+	// ServerMessageItemDelimiter is the delimiter used within
+	// individual parts to further break the part down
+	ServerMessageItemDelimiter = ":"
+	// ServerDiscoveryKeyword is the phrase used to distinguish
+	// server discovery messages on the network
+	ServerDiscoveryKeyword = "WHO_IS_MEDIA_SERVER"
+	// ServerDiscoverResponse is the phrase used to distinguish
+	// server discovery response messages on the network
+	ServerDiscoveryResponse = "I_AM_MEDIA_SERVER"
+	// ClientIdentificationKeyword is the phrase used to distinguish
+	// client identification messages on the network
+	ClientIdentificationKeyword = "I_AM_CLIENT"
+	// ClientIdentificationResponse is the phrase used to distinguish
+	// client identification response from the server
+	ClientIdentificationResponse = "HI_CLIENT"
+	// ClientIdentificationNameKey is the key for the 'name' item
+	// within a client identification message
+	ClientIdentificationNameKey = "NAME"
+	// ClientIdentificationCapabilitiesKey is the key for the
+	// 'capabilities' item within a client identification message
+	ClientIdentificationCapabilitiesKey = "CAPABILITIES"
+)
+
+var (
+	// ErrNotClientIdentificationMessage is returned when you know
+	ErrNotClientIdentificationMessage = errors.New("not identification message")
+)
+
+// ServerAction is the type of actions a client/server can take
+type ServerAction string
+
+const (
+	// ServerActionUnknown is an unknown server action
+	ServerActionUnknown ServerAction = "UNKNOWN"
+	// ServerActionDiscover is the server action for discovering each other
+	ServerActionDiscover ServerAction = "DISCOVER"
+	// ServerActionIdentification is the server action for identifying a client
+	ServerActionIdentification ServerAction = "IDENTIFICATION"
 )
 
 // Audio device constants
