@@ -1,19 +1,21 @@
 package clientmanager
 
 import (
+	"mediacenter/shared"
 	"net"
 	"time"
 )
 
 // Client is the information we have about a client
 type Client struct {
-	Name           string
+	Name           string `json:"name"`
 	IP             string
 	Addr           *net.Addr
 	Status         ClientStatus
+	DataBuffer     shared.ThreadSafeBuffer[byte]
 	Capabilities   []int
-	LastSeen       time.Time
-	DisconnectedAt *time.Time
+	LastSeen       time.Time  `json:"lastSeen"`
+	DisconnectedAt *time.Time `json:"disconnectedAt"`
 }
 
 // ClientStatus is the possible statuses for a client

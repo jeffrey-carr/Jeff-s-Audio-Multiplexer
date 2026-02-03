@@ -44,7 +44,11 @@ func (client *MediaClient) Start() (func() error, error) {
 		return nil, err
 	}
 
-	deviceCloser, err := shared.StartDevice("blackhole", malgo.Capture, func(_, pInput []byte, _ uint32) {
+	deviceName := "blackhole"
+	if client.name == "client2" {
+		deviceName = ""
+	}
+	deviceCloser, err := shared.StartDevice(deviceName, malgo.Capture, func(_, pInput []byte, _ uint32) {
 		// Typical MTU on networks is 1400 bytes, so we need to split our message into smaller packets
 		for packet := range shared.StreamSlice(pInput, shared.NetworkPacketSizeBytes) {
 			connection.Write(packet)

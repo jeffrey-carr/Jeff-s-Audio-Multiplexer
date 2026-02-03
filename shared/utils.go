@@ -184,3 +184,27 @@ func FilterSlice[T any](s []T, f func(T) bool) []T {
 
 	return out
 }
+
+// CountInSlice counts the number of items in s that meet the criteria
+// of the provided function
+func CountInSlice[T any](s []T, shouldCount func(T) bool) int {
+	validItems := FilterSlice(s, shouldCount)
+	return len(validItems)
+}
+
+// ClampFloat clamps a float between the boundaries. If only one number
+// is provided, it is assumed to be the minimum. If two numbers are provided,
+// it is assumed to be [min, max). Any boundaries above 3 will be ignored.
+func ClampFloat(in float32, boundaries ...float32) float32 {
+	if len(boundaries) == 0 {
+		return in
+	}
+	if len(boundaries) >= 1 {
+		in = max(boundaries[0], in)
+	}
+	if len(boundaries) >= 2 {
+		in = min(boundaries[1], in)
+	}
+
+	return in
+}

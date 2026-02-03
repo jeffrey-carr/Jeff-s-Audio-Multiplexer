@@ -17,8 +17,13 @@ type ClientManager interface {
 		clientAddr net.Addr,
 		capabilities []int,
 	) error
-	// MarkClient marks a client as seen
-	MarkClient(ip string)
+	SetClient(client Client)
+	// GetClientByAddr gets a client by their addr
+	GetClientByAddr(addr *net.UDPAddr) (Client, bool)
+	// ConnectedClients returns a slice of the currently
+	// connected clients
+	ConnectedClients() []Client
+	// PrintStatuses prints the status of each client
 	PrintStatuses()
 }
 
@@ -60,26 +65,38 @@ func (cm *clientManager) AddClient(
 	return err
 }
 
-func (cm *clientManager) MarkClient(ip string) {
-	go func() {
-		snap := cm.clients.Snapshot()
-		var client Client
-		var found bool
-		for _, potentialClient := range snap {
-			if potentialClient.IP == ip {
-				client = potentialClient
-				found = true
-				break
-			}
+// SetClient sets the client
+func (cm *clientManager) SetClient(client Client) {
+	cm.clients.Set(client.Name, client)
+}
+
+// GetClientByAddr finds a client by their address. Returns the client and a flag
+// if the client was found
+func (cm *clientManager) GetClientByAddr(addr *net.UDPAddr) (Client, bool) {
+	if addr == nil {
+		return Client{}, false
+	}
+
+	snap := cm.clients.Snapshot()
+	for _, potentialClient := range snap {
+		if potentialClient.Addr == nil {
+			continue
 		}
 
-		if !found {
-			return
+		if (*potentialClient.Addr).Network() == addr.Network() {
+			return potentialClient, true
 		}
+	}
 
-		client.LastSeen = time.Now()
-		cm.clients.Set(client.Name, client)
-	}()
+	return Client{}, false
+}
+
+func (cm *clientManager) ConnectedClients() []Client {
+	snap := cm.clients.Snapshot()
+	return shared.FilterSlice(
+		slices.Collect(maps.Values(snap)),
+		func(client Client) bool { return client.Status == ClientStatusConnected },
+	)
 }
 
 func (cm *clientManager) Message(name, msg string) error {
@@ -88,12 +105,22 @@ func (cm *clientManager) Message(name, msg string) error {
 }
 
 func (cm *clientManager) PrintStatuses() {
-	clients := cm.clients.Snapshot()
-
-	fmt.Println("Client name - Client status - Last seen")
-	for _, client := range clients {
-		fmt.Printf("\t%s - %s - %s\n", client.Name, client.Status, client.LastSeen.String())
-	}
+	go func() {
+		clients := cm.clients.Snapshot()
+		nConnectedClients := shared.CountInSlice(
+			slices.Collect(maps.Values(clients)),
+			func(client Client) bool {
+				return client.Status == ClientStatusConnected
+			},
+		)
+		fmt.Println("\n==========")
+		fmt.Printf("%d connected clients:\n", nConnectedClients)
+		fmt.Println("\tClient name - Client status - Last seen")
+		for _, client := range clients {
+			fmt.Printf("\t%s - %s - %s\n", client.Name, client.Status, client.LastSeen.String())
+		}
+		fmt.Println("==========")
+	}()
 }
 
 func (cm *clientManager) startCleaner(ctx context.Context) {

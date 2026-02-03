@@ -1,6 +1,7 @@
 package clientmanager
 
 import (
+	"mediacenter/shared"
 	"net"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ func NewClient(name string, addr net.Addr, capabilities []int) Client {
 		IP:           ip,
 		Addr:         &addr,
 		Capabilities: capabilities,
+		DataBuffer:   shared.NewThreadSafeBuffer[byte](48000),
 		Status:       ClientStatusConnected,
 		LastSeen:     time.Now(),
 	}
