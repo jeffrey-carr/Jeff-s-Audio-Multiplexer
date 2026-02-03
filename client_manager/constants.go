@@ -11,7 +11,7 @@ const (
 	MaxConnections = 150
 	// ConnectionTimeout is length of time with no message
 	// until a client is considered "disconnected"
-	ConnectionTimeout = time.Duration(30) * time.Second
+	ConnectionTimeout = time.Duration(5) * time.Second
 )
 
 var (

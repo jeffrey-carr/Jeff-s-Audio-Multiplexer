@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"mediacenter/shared"
 	"unsafe"
 )
@@ -44,19 +43,6 @@ func MixInputs(ins [][]byte) []byte {
 		}
 		mixedFloats[i] = total
 	}
-
-	var inAvg float32
-	for _, n := range floats[0] {
-		inAvg += n
-	}
-	inAvg /= float32(len(floats[0]))
-	var outAvg float32
-	for _, n := range mixedFloats {
-		outAvg += n
-	}
-	outAvg /= float32(len(mixedFloats))
-
-	fmt.Printf("In average: %f, out average: %f\n", inAvg, outAvg)
 
 	// Now convert the float back to bytes and we're golden
 	return FloatsToBytes(mixedFloats)

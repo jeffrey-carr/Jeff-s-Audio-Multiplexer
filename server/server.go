@@ -129,7 +129,6 @@ func (s *MediaServer) startUDP() (*net.UDPConn, error) {
 
 func (s *MediaServer) handleAudio() shared.MalgoCallback {
 	return func(pOutput, _ []byte, _ uint32) {
-		readyClients := 0
 		bytesNeeded := len(pOutput)
 		connectedClients := s.clients.ConnectedClients()
 
@@ -140,54 +139,20 @@ func (s *MediaServer) handleAudio() shared.MalgoCallback {
 			return
 		}
 
-		for _, client := range connectedClients {
-			if client.DataBuffer.Size() >= shared.NetworkPacketSizeBytes*3 {
-				readyClients++
-			}
-		}
-
-		if readyClients < 1 {
+		readyClients := shared.FilterSlice(connectedClients, func(client clientmanager.Client) bool {
+			return client.DataBuffer.Size() >= shared.NetworkPacketSizeBytes*3
+		})
+		if len(readyClients) < 1 {
 			shared.ZeroSlice(pOutput)
 			return
 		}
 
-		audioBuffers := make([][]byte, len(connectedClients))
-		for i, client := range connectedClients {
+		audioBuffers := make([][]byte, len(readyClients))
+		for i, client := range readyClients {
 			audioBuffers[i] = client.DataBuffer.Read(bytesNeeded)
 		}
 
 		mixed := MixInputs(audioBuffers)
 		copy(pOutput, mixed)
 	}
-
-	// return func(pOutput, _ []byte, _ uint32) {
-	// 	// Mix all audio sources together
-	// 	connectedClients := s.clients.ConnectedClients()
-	// 	audioBuffers := make([][]byte, len(connectedClients))
-	// 	for i, client := range connectedClients {
-	// 		audioBuffers[i] = client.DataBuffer.Read(len(pOutput))
-	// 	}
-	// 	buffer := MixInputs(audioBuffers)
-	// 	currentSize := len(buffer)
-
-	// 	// try to keep buffer at least 3 packets to avoid crackling
-	// 	// 1 for playing, 1 for the buffer, and 1 "in-flight"
-	// 	// in-flight being part of the buffer to protect against dropped packets
-	// 	// or wifi latency
-	// 	if currentSize < shared.NetworkPacketSizeBytes*3 {
-	// 		isBuffering = true
-	// 	}
-
-	// 	if isBuffering {
-	// 		if currentSize < AudioBufferThreshold {
-	// 			// Fill the output slice with zeroes to prevent
-	// 			// garbage output from leftover data
-	// 			shared.ZeroSlice(pOutput)
-	// 			return
-	// 		}
-	// 		isBuffering = false
-	// 	}
-
-	// 	copy(pOutput, buffer)
-	// }
 }
