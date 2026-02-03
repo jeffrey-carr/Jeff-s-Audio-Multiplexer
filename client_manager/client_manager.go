@@ -83,7 +83,7 @@ func (cm *clientManager) GetClientByAddr(addr *net.UDPAddr) (Client, bool) {
 			continue
 		}
 
-		if (*potentialClient.Addr).Network() == addr.Network() {
+		if (*potentialClient.Addr).String() == addr.String() {
 			return potentialClient, true
 		}
 	}
@@ -114,6 +114,7 @@ func (cm *clientManager) PrintStatuses() {
 			},
 		)
 		fmt.Println("\n==========")
+		fmt.Println(time.Now().String())
 		fmt.Printf("%d connected clients:\n", nConnectedClients)
 		fmt.Println("\tClient name - Client status - Last seen")
 		for _, client := range clients {
