@@ -16,10 +16,10 @@ type ClientManager interface {
 		name string,
 		clientAddr net.Addr,
 		capabilities []int,
-	) error
+	) (Client, error)
 	SetClient(client Client)
-	// GetClientByAddr gets a client by their addr
-	GetClientByAddr(addr *net.UDPAddr) (Client, bool)
+	// GetClientBySessionToken gets a client by their session token
+	GetClientBySessionToken(sessionToken string) (Client, bool)
 	// ConnectedClients returns a slice of the currently
 	// connected clients
 	ConnectedClients() []Client
@@ -46,49 +46,38 @@ func (cm *clientManager) AddClient(
 	name string,
 	clientAddr net.Addr,
 	capabilities []int,
-) error {
+) (Client, error) {
 	// For right now, there isn't really any data that we need to carry
 	// over between client connections, so there isn't any reason to check
 	// if the client already exists. Even if we have an already-connected
 	// client, it's more likely the client lost connection and is re-joining.
 	// So we just create a whole new client every time and save it
-	client := NewClient(name, clientAddr, capabilities)
+	sessionToken := GenerateUUID()
+	client := NewClient(name, clientAddr, capabilities, sessionToken)
 
-	err := cm.clients.Set(name, client)
+	err := cm.clients.Set(sessionToken, client)
 	if err == shared.ErrMapFull {
 		// If our connection map is full, try forcing cleaning out any
 		// disconnected clients
 		cm.cleanConnections(true)
-		err = cm.clients.Set(name, client)
+		err = cm.clients.Set(sessionToken, client)
+	}
+	if err != nil {
+		return Client{}, err
 	}
 
-	return err
+	return client, nil
 }
 
 // SetClient sets the client
 func (cm *clientManager) SetClient(client Client) {
-	cm.clients.Set(client.Name, client)
+	cm.clients.Set(client.SessionToken, client)
 }
 
 // GetClientByAddr finds a client by their address. Returns the client and a flag
 // if the client was found
-func (cm *clientManager) GetClientByAddr(addr *net.UDPAddr) (Client, bool) {
-	if addr == nil {
-		return Client{}, false
-	}
-
-	snap := cm.clients.Snapshot()
-	for _, potentialClient := range snap {
-		if potentialClient.Addr == nil {
-			continue
-		}
-
-		if (*potentialClient.Addr).String() == addr.String() {
-			return potentialClient, true
-		}
-	}
-
-	return Client{}, false
+func (cm *clientManager) GetClientBySessionToken(sessionToken string) (Client, bool) {
+	return cm.clients.Get(sessionToken)
 }
 
 func (cm *clientManager) ConnectedClients() []Client {
@@ -116,9 +105,9 @@ func (cm *clientManager) PrintStatuses() {
 		fmt.Println("\n==========")
 		fmt.Println(time.Now().String())
 		fmt.Printf("%d connected clients:\n", nConnectedClients)
-		fmt.Println("\tClient name - Client status - Last seen")
+		fmt.Println("\tClient name - Client status - Session token - Last seen")
 		for _, client := range clients {
-			fmt.Printf("\t%s - %s - %s\n", client.Name, client.Status, client.LastSeen.String())
+			fmt.Printf("\t%s - %s - %s - %s\n", client.Name, client.Status, client.SessionToken, client.LastSeen.String())
 		}
 		fmt.Println("==========")
 	}()
@@ -154,7 +143,7 @@ func (cm *clientManager) cleanConnections(forceClean bool) {
 			now := time.Now()
 			client.DisconnectedAt = &now
 			client.Status = ClientStatusDisconnected
-			cm.clients.Set(client.Name, client)
+			cm.SetClient(client)
 		}
 		if forceClean && client.Status == ClientStatusDisconnected {
 			cm.clients.Remove(client.Name)

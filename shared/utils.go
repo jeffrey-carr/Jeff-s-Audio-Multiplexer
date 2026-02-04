@@ -58,7 +58,6 @@ func ZeroSlice[T any](s []T) {
 // IdentifyServerAction identifies the server action from the message
 func IdentifyServerAction(message string) ServerAction {
 	actionStr := strings.Split(message, ServerMessagePartsDelimiter)[0]
-	fmt.Printf("action string: %q\n", actionStr)
 	switch actionStr {
 	case ServerDiscoveryKeyword:
 		fallthrough
@@ -111,11 +110,12 @@ func CraftClientIdentificationMessage(name string, capabilities []int) []byte {
 }
 
 // CraftClientIdentificationResponse puts together a client identification response message
-func CraftClientIdentificationResponse(ok bool) []byte {
+func CraftClientIdentificationResponse(ok bool, sessionToken string) []byte {
 	return []byte(
 		joinParts(
 			ClientIdentificationResponse,
 			fmt.Sprintf("%t", ok),
+			sessionToken,
 		),
 	)
 }
@@ -156,13 +156,35 @@ func ReadClientIdentificationMessage(message string) (bool, string, []int, error
 
 // ReadClientIdentificationResponse returns whether the connection was ok
 // based on the server response
-func ReadClientIdentificationResponse(message string) (bool, error) {
+func ReadClientIdentificationResponse(message string) (bool, string, error) {
 	parts := strings.Split(message, ServerMessagePartsDelimiter)
-	if len(parts) != 2 || parts[0] != ClientIdentificationResponse {
-		return false, ErrNotClientIdentificationMessage
+	if len(parts) != 3 || parts[0] != ClientIdentificationResponse {
+		return false, "", ErrNotClientIdentificationMessage
 	}
 
-	return strconv.ParseBool(parts[1])
+	ok, err := strconv.ParseBool(parts[1])
+	if err != nil {
+		return false, "", err
+	}
+
+	return ok, parts[2], nil
+}
+
+// CreateClientBytesRequest creates a client bytes request
+func CreateClientBytesRequest(sessionToken string, audio []byte) []byte {
+	header := []byte(joinParts(ClientAudioBytes, sessionToken) + ";")
+	return append(header, audio...)
+}
+
+// ReadClientBytesRequest reads in a clients bytes request
+func ReadClientBytesRequest(message string) (bool, string, error) {
+	parts := strings.Split(message, ServerMessagePartsDelimiter)
+	if len(parts) != 3 || parts[0] != ClientAudioBytes {
+		fmt.Printf("%s not okay, len %d and first thing is %s\n", message, len(parts), parts[0])
+		return false, "", nil
+	}
+
+	return true, parts[1], nil
 }
 
 func joinParts(parts ...string) string {

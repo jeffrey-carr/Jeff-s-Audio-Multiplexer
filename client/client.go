@@ -39,15 +39,14 @@ func (client *MediaClient) Start() (func() error, error) {
 	// some stopClient() calls by just deferring it here
 	defer stopClient()
 
-	connection, err := client.startUDP(clientCtx)
+	connection, sessionToken, err := client.startUDP(clientCtx)
 	if err != nil {
 		return nil, err
 	}
 
 	deviceCloser, err := shared.StartDevice("blackhole", malgo.Capture, func(_, pInput []byte, _ uint32) {
-		// Typical MTU on networks is 1400 bytes, so we need to split our message into smaller packets
 		for packet := range shared.StreamSlice(pInput, shared.NetworkPacketSizeBytes) {
-			connection.Write(packet)
+			connection.Write(shared.CreateClientBytesRequest(sessionToken, packet))
 		}
 	})
 	if err != nil {
@@ -63,36 +62,34 @@ func (client *MediaClient) Start() (func() error, error) {
 	return closer, nil
 }
 
-func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, error) {
+func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, string, error) {
 	// set up a listener for server responses
 	listener, err := net.ListenPacket("udp", ":0")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	dst, err := net.ResolveUDPAddr("udp", fmt.Sprintf("255.255.255.255:%d", client.serverPort))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	attempts := 0
 	for {
 		if shared.ShouldKillCtx(ctx) {
-			return nil, nil
+			return nil, "", nil
 		}
 
 		attempts++
 		fmt.Printf("Sending message to server: %s\n", shared.ServerDiscoveryKeyword)
 		listener.WriteTo([]byte(shared.ServerDiscoveryKeyword), dst)
 		listener.SetDeadline(time.Now().Add(ServerDiscoveryTimeout))
-		// craft a sample response to determine the size of the buffer
-		sampleResponse := shared.CraftServerDiscoveryResponse(9999)
-		buffer := make([]byte, len(sampleResponse))
+		buffer := make([]byte, 1024)
 		var serverPort int
 
 		for {
 			if shared.ShouldKillCtx(ctx) {
-				return nil, nil
+				return nil, "", nil
 			}
 
 			_, peerAddr, err := listener.ReadFrom(buffer)
@@ -119,14 +116,14 @@ func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, er
 					continue
 				}
 			case shared.ServerActionIdentification:
-				ok, err := client.handleIdentificationResponse(bufferContents)
+				ok, sessionToken, err := client.handleIdentificationResponse(bufferContents)
 				if err != nil {
 					serverPort = 0
 					break
 				}
 				if ok {
 					peerUDPAddr.Port = serverPort
-					return peerUDPAddr, nil
+					return peerUDPAddr, sessionToken, nil
 				}
 			default:
 				fmt.Println("unknown action")
@@ -134,7 +131,7 @@ func (client *MediaClient) discoverServer(ctx context.Context) (*net.UDPAddr, er
 		}
 
 		if attempts >= ServerDiscoveryAttempts {
-			return nil, errors.New("could not find server")
+			return nil, "", errors.New("could not find server")
 		}
 	}
 }
@@ -157,26 +154,31 @@ func (client *MediaClient) handleDiscoveryResponse(message string, dst *net.UDPA
 	return true, serverPort, nil
 }
 
-func (client *MediaClient) handleIdentificationResponse(message string) (bool, error) {
-	ok, err := shared.ReadClientIdentificationResponse(message)
+func (client *MediaClient) handleIdentificationResponse(message string) (bool, string, error) {
+	ok, sessionToken, err := shared.ReadClientIdentificationResponse(message)
 	if err == shared.ErrNotClientIdentificationMessage {
-		return false, nil
+		return false, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if !ok {
-		return false, errors.New("connection error")
+		return false, "", errors.New("connection error")
 	}
 
-	return true, nil
+	return true, sessionToken, nil
 }
 
-func (client *MediaClient) startUDP(ctx context.Context) (*net.UDPConn, error) {
-	serverAddr, err := client.discoverServer(ctx)
+func (client *MediaClient) startUDP(ctx context.Context) (*net.UDPConn, string, error) {
+	serverAddr, sessionToken, err := client.discoverServer(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return net.DialUDP("udp", nil, serverAddr)
+	conn, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return conn, sessionToken, nil
 }

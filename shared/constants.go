@@ -31,6 +31,12 @@ const (
 	// ClientIdentificationCapabilitiesKey is the key for the
 	// 'capabilities' item within a client identification message
 	ClientIdentificationCapabilitiesKey = "CAPABILITIES"
+	// ClientAudioBytes is the audio bytes header
+	ClientAudioBytes = "AUDIO"
+
+	// ClientAudioBytesHeaderLen is the amount of bytes the audio client bytes header is
+	// AUDIO (5) + ; (1) + UUID (36) + ; (1) = 43
+	ClientAudioBytesHeaderLen = 43
 )
 
 var (
@@ -48,6 +54,8 @@ const (
 	ServerActionDiscover ServerAction = "DISCOVER"
 	// ServerActionIdentification is the server action for identifying a client
 	ServerActionIdentification ServerAction = "IDENTIFICATION"
+	// ServerActionExchangeAudio when audio is being exchanged
+	ServerActionExchangeAudio ServerAction = "EXCHANGE_AUDIO"
 )
 
 // Audio device constants

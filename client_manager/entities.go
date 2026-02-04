@@ -9,6 +9,7 @@ import (
 // Client is the information we have about a client
 type Client struct {
 	Name           string `json:"name"`
+	SessionToken   string
 	Addr           *net.Addr
 	Status         ClientStatus
 	DataBuffer     shared.ThreadSafeBuffer[byte]

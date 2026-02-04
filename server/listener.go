@@ -44,7 +44,7 @@ func (server *ListenerServer) Start(ctx context.Context) error {
 		// about errors (for now, we should log errors at some point)
 		close(errChan)
 
-		buffer := make([]byte, 1024)
+		buffer := make([]byte, 2048)
 		for {
 			if shared.ShouldKillCtx(ctx) {
 				return
@@ -101,21 +101,21 @@ func (server *ListenerServer) handleDiscoveryRequest(message string, conn net.Pa
 func (server *ListenerServer) handleClientIdentificationRequest(message string, conn net.PacketConn, dst net.Addr) error {
 	isIdentificationMessage, name, capabilities, err := shared.ReadClientIdentificationMessage(message)
 	if err != nil {
-		conn.WriteTo(shared.CraftClientIdentificationResponse(false), dst)
+		conn.WriteTo(shared.CraftClientIdentificationResponse(false, ""), dst)
 		return err
 	}
 	if !isIdentificationMessage {
 		return nil
 	}
 
-	err = server.clients.AddClient(name, dst, capabilities)
+	client, err := server.clients.AddClient(name, dst, capabilities)
 	if err != nil {
-		conn.WriteTo(shared.CraftClientIdentificationResponse(false), dst)
+		conn.WriteTo(shared.CraftClientIdentificationResponse(false, ""), dst)
 		return err
 	}
 
 	server.clients.PrintStatuses()
 
-	_, err = conn.WriteTo(shared.CraftClientIdentificationResponse(true), dst)
+	_, err = conn.WriteTo(shared.CraftClientIdentificationResponse(true, client.SessionToken), dst)
 	return err
 }

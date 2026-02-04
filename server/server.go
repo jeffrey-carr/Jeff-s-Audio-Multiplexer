@@ -88,28 +88,37 @@ func (s *MediaServer) launchServer(ctx context.Context) error {
 	}
 
 	go func() {
-		buffer := make([]byte, shared.NetworkPacketSizeBytes)
+		buffer := make([]byte, shared.NetworkPacketSizeBytes+shared.ClientAudioBytesHeaderLen)
 		for {
 			if shared.ShouldKillCtx(ctx) {
 				return
 			}
 
-			n, addr, err := server.ReadFromUDP(buffer)
+			bytesReceived, _, err := server.ReadFromUDP(buffer)
 			if err != nil {
 				fmt.Printf("Error reading: %s\n", err.Error())
 				continue
 			}
-			if addr == nil {
-				fmt.Println("addr not present")
+
+			header := buffer[:shared.ClientAudioBytesHeaderLen]
+
+			ok, sessionToken, err := shared.ReadClientBytesRequest(string(header))
+			if err != nil {
+				fmt.Printf("error reading message: %s\n", err.Error())
+				continue
+			}
+			if !ok {
+				fmt.Println("header not ok")
 				continue
 			}
 
-			client, found := s.clients.GetClientByAddr(addr)
+			client, found := s.clients.GetClientBySessionToken(sessionToken)
 			if !found {
+				fmt.Printf("could not find client with session token %s\n", sessionToken)
 				continue
 			}
 			client.LastSeen = time.Now()
-			client.DataBuffer.Add(buffer[:n]...)
+			client.DataBuffer.Add(buffer[shared.ClientAudioBytesHeaderLen:bytesReceived]...)
 			s.clients.SetClient(client)
 		}
 	}()
