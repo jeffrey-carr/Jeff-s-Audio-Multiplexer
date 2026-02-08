@@ -108,12 +108,12 @@ func (s *MediaServer) launchServer(ctx context.Context) error {
 				continue
 			}
 			if !ok {
-				fmt.Println("header not ok")
 				continue
 			}
 
 			client, found := s.clients.GetClientBySessionToken(sessionToken)
 			if !found {
+				// TODO - reject client so they can reconnect
 				fmt.Printf("could not find client with session token %s\n", sessionToken)
 				continue
 			}
@@ -149,7 +149,7 @@ func (s *MediaServer) handleAudio() shared.MalgoCallback {
 		}
 
 		readyClients := shared.FilterSlice(connectedClients, func(client clientmanager.Client) bool {
-			return client.DataBuffer.Size() >= shared.NetworkPacketSizeBytes*3
+			return client.DataBuffer.Size() >= shared.NetworkPacketSizeBytes/25 // this is pretty much trial/error
 		})
 		if len(readyClients) < 1 {
 			shared.ZeroSlice(pOutput)

@@ -12,6 +12,7 @@ const (
 	ServerMessagePartsDelimiter = ";"
 	// ServerMessageItemDelimiter is the delimiter used within
 	// individual parts to further break the part down
+	// FIXME: i bet this becomes an issue at some point, ipv6?
 	ServerMessageItemDelimiter = ":"
 	// ServerDiscoveryKeyword is the phrase used to distinguish
 	// server discovery messages on the network
@@ -63,7 +64,7 @@ const (
 	NumInputChannels         = 2
 	NumOutputChannels        = 2
 	AudioSampleRate          = 48000
-	SamplePeriodMilliseconds = 10
+	SamplePeriodMilliseconds = 5
 )
 
 // MalgoCallback is the callback that gets passed to malgo
